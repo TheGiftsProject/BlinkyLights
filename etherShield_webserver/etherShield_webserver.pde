@@ -83,6 +83,9 @@ void setup(){
   es.ES_init_ip_arp_udp_tcp(mymac,myip,80);
   Serial.begin(9600);
   Serial.println("Hello world");
+  
+  //char* teststr = "asdfvas\\808080\\80";
+  //testbr((uint8_t *)teststr, 0);
 
 }
 
@@ -260,24 +263,73 @@ uint16_t print_webpage(uint8_t *buf)
   
         return(plen);
  }
-void breath() {
-  for(int i=0;i<=10;i++) {
-    digitalWrite(GREEN_PIN,HIGH);
-    delay(1000);
-    digitalWrite(GREEN_PIN,LOW);
-    delay(1000);
+ 
+ byte hexToByte(char* hexString) { // accepts a 2-character string with valid hex values
+      byte result = 0;
+      result |= parseHexChar(hexString[0]) << 4;
+      result |= parseHexChar(hexString[1]);
+      
+      return result;
+ }
+ 
+ byte parseHexChar(char c)
+ {
+      if (c > 47 && c < 58)
+      {
+        return c - 48;
+      } else if (c > 64 && c < 71) {
+        return c - 55;
+      }
+      return 0;
+ }
+ 
+void breath(byte r, byte g, byte b, byte msSpeed) {
+  Serial.println(r, DEC);
+  Serial.println(g, DEC);
+  Serial.println(b, DEC);
+  Serial.println(msSpeed, DEC);
+  for (byte i = 0; i <= 0xFF; ++i)
+  {
+    analogWrite(RED_PIN, map(i, 0, 0xFF, 0, r));
+    analogWrite(GREEN_PIN, map(i, 0, 0xFF, 0, g));
+    analogWrite(BLUE_PIN, map(i, 0, 0xFF, 0, b));
+    delay(msSpeed);
+  }
+  for (byte i = 0xFF; i >= 0; --i)
+  {
+    analogWrite(RED_PIN, map(i, 0, 0xFF, 0, r));
+    analogWrite(GREEN_PIN, map(i, 0, 0xFF, 0, g));
+    analogWrite(BLUE_PIN, map(i, 0, 0xFF, 0, b));
+    delay(msSpeed);
   }
 } 
+
+void testbr(uint8_t *buf, uint16_t data_start)
+{
+     byte red = hexToByte((char *)&(buf[data_start+8]));
+     Serial.println(red, DEC);
+    byte green = hexToByte((char *)&(buf[data_start+10]));
+    Serial.println(green, DEC);
+    byte blue = hexToByte((char *)&(buf[data_start+12]));
+    Serial.println(blue, DEC);
+    byte msSpeed = hexToByte((char *)&(buf[data_start+15]));
+    Serial.println(msSpeed, DEC);
+    //breath(red, green, blue, msSpeed);
+}
 uint16_t parseCommand(uint8_t *buf,uint16_t data_start) {
   //All params are a must
   //RGB => CSS hex format
   Serial.println("DATA!!!!");
   Serial.println(buf[data_start+4]);
-  if(strncmp("/BL ",(char *)&(buf[data_start+4]),3)==0) { //BLINK Format:/BL/RGB/D(in sec,length:2 chars)
+  if(strncmp("/BL",(char *)&(buf[data_start+4]),3)==0) { //BLINK Format:/BL/RGB/D(in sec,length:2 chars)
     Serial.println("BL");
-  } else if (strncmp("/BR ",(char *)&(buf[data_start+4]),3)==0) { //BREATH Format:/BR/RGB/MaxBrightnes(2 Hex chars)/Speed(2 Hex char in millisec)
-    breath();
-  } else if (strncmp("/PM ",(char *)&(buf[data_start+4]),3)==0) { //PartyMode Format :/PM
+  } else if (strncmp("/BR",(char *)&(buf[data_start+4]),3)==0) { //BREATH Format:/BR/RRGGBB/Speed(2 Hex char in millisec)
+    byte red = hexToByte((char *)&(buf[data_start+8]));
+    byte green = hexToByte((char *)&(buf[data_start+10]));
+    byte blue = hexToByte((char *)&(buf[data_start+12]));
+    byte msSpeed = hexToByte((char *)&(buf[data_start+15]));
+    breath(red, green, blue, msSpeed);
+  } else if (strncmp("/PM",(char *)&(buf[data_start+4]),3)==0) { //PartyMode Format :/PM
   } else {
     //else, serve some web-page or something.
   }
