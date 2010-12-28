@@ -17,15 +17,6 @@ static uint8_t buf[BUFFER_SIZE+1];
 #define STR_BUFFER_SIZE 22
 static char strbuf[STR_BUFFER_SIZE+1];
 
-int brightness = 0;
-int dir = 1;
-int speed = 1;
-
-int maxCounter = 10000;
-int blinkCounter = maxCounter;
-int blinkState = LOW;
-int totalCounter = 0;
-
 const unsigned int STATUS_BREATHE = 0;
 const unsigned int STATUS_PARTY   = 1;
 const unsigned int STATUS_BLINK   = 2;
@@ -56,12 +47,15 @@ int8_t analyse_cmd(char *str);
 void setup(){
   
    /*initialize enc28j60*/
-	 es.ES_enc28j60Init(mymac);
+   es.ES_enc28j60Init(mymac);
    es.ES_enc28j60clkout(2); // change clkout from 6.25MHz to 12.5MHz
+   es.ES_init_ip_arp_udp_tcp(mymac,myip,80);
+   es.ES_enc28j60PhyWrite(EIR, 0);
+   es.ES_enc28j60PhyWrite(EIR, EIR_PKTIF);
+   attachInterrupt(0, onInterrupt, FALLING);
    pinMode(RED_PIN, OUTPUT);
    pinMode(GREEN_PIN, OUTPUT);
    pinMode(BLUE_PIN, OUTPUT);
-   delay(10);
         
 	/* Magjack leds configuration, see enc28j60 datasheet, page 11 */
 	// LEDA=greed LEDB=yellow
@@ -70,53 +64,36 @@ void setup(){
 	// enc28j60PhyWrite(PHLCON,0b0000 1000 1000 00 00);
 	es.ES_enc28j60PhyWrite(PHLCON,0x880);
         digitalWrite(GREEN_PIN, HIGH);
-	delay(500);
+	delay(100);
 	//
 	// 0x990 is PHLCON LEDB=off, LEDA=off
 	// enc28j60PhyWrite(PHLCON,0b0000 1001 1001 00 00);
 	es.ES_enc28j60PhyWrite(PHLCON,0x990);
         digitalWrite(GREEN_PIN, LOW);
         digitalWrite(RED_PIN, HIGH);
-	delay(500);
+	delay(100);
 	//
 	// 0x880 is PHLCON LEDB=on, LEDA=on
 	// enc28j60PhyWrite(PHLCON,0b0000 1000 1000 00 00);
 	es.ES_enc28j60PhyWrite(PHLCON,0x880);
         digitalWrite(RED_PIN, LOW);
         digitalWrite(BLUE_PIN, HIGH);
-	delay(500);
+	delay(100);
 	//
 	// 0x990 is PHLCON LEDB=off, LEDA=off
 	// enc28j60PhyWrite(PHLCON,0b0000 1001 1001 00 00);
 	es.ES_enc28j60PhyWrite(PHLCON,0x990);
         digitalWrite(BLUE_PIN, LOW);
-	delay(500);
+	delay(100);
 
 	//
   // 0x476 is PHLCON LEDA=links status, LEDB=receive/transmit
   // enc28j60PhyWrite(PHLCON,0b0000 0100 0111 01 10);
   es.ES_enc28j60PhyWrite(PHLCON,0x476);
-	delay(100);
-        
-  //init the ethernet/ip layer:
-  es.ES_init_ip_arp_udp_tcp(mymac,myip,80);
-
-}
-
-void fade()
-{
-  brightness += speed * dir;
-  if (brightness > 255) 
-  {
-    brightness = 255;
-    dir *= -1;
-  }
   
-  if (brightness < 0)
-  {
-    brightness = 0;
-    dir *= -1;
-  }
+  
+  Serial.begin(9600);
+  Serial.println("hello");
 }
 
 void loop(){
@@ -124,10 +101,12 @@ void loop(){
   //es.ES_enc28j60PhyWrite(EIR, 0);
   //es.ES_enc28j60PhyWrite(EIR, EIR_PKTIF);
   //attachInterrupt(0, onInterrupt, CHANGE);
-  noInterrupts();
-  handlePacket();
-  interrupts();
+  //noInterrupts();
+  //handlePacket();
+  //interrupts();
   delayMicroseconds(100);
+  Serial.println("in loop");
+  Serial.println(es.ES_get_packet_count(), DEC);
   switch (nextStatus)
   {
     case STATUS_BLINK:
@@ -135,6 +114,7 @@ void loop(){
       blink(red, green, blue, blinkSpeed);
       break;
     case STATUS_BREATHE:
+       Serial.println("starting breath");
       breathe(red, green, blue, breatheSpeed);
       //nextStatus = STATUS_BREATHE;
       break;
@@ -152,6 +132,8 @@ void loop(){
       party();
       break;
   }
+  Serial.println("attaching interrupt");
+  attachInterrupt(0, onInterrupt, FALLING);
 }
 // The returned value is stored in the global var strbuf
 uint8_t find_key_val(char *str,char *key)
@@ -242,9 +224,17 @@ uint16_t print_webpage(uint8_t *buf)
  }
  
 void onInterrupt() {
-  noInterrupts();
-  handlePacket();
-  interrupts();
+  
+  //noInterrupts();
+  detachInterrupt(0);
+  Serial.println("interrupted");
+  while (es.ES_get_packet_count() > 0)
+  {
+    handlePacket();
+  }
+  //attachInterrupt(0, onInterrupt, FALLING);
+  //interrupts();
+  //Serial.println("served interrupt");
 }
 
 void handlePacket() {
@@ -256,25 +246,28 @@ void handlePacket() {
 
 	/*plen will ne unequal to zero if there is a valid packet (without crc error) */
   if(plen!=0){
-
+    Serial.println("plen!=0");
 	           
     // arp is broadcast if unknown but a host may also verify the mac address by sending it to a unicast address.
     if(es.ES_eth_type_is_arp_and_my_ip(buf,plen)){
+      Serial.println("ARP");
       es.ES_make_arp_answer_from_request(buf);
       return;
     }
 
     // check if ip packets are for us:
     if(es.ES_eth_type_is_ip_and_my_ip(buf,plen)==0){
+      Serial.println("not me");
       return;
     }
 
     if(buf[IP_PROTO_P]==IP_PROTO_ICMP_V && buf[ICMP_TYPE_P]==ICMP_TYPE_ECHOREQUEST_V){
+       Serial.println("got ping");
        nextStatus = STATUS_PING;
       es.ES_make_echo_reply_from_request(buf,plen);
       return;
     }
-    
+    Serial.println("something else...");
     // tcp port www start, compare only the lower byte
     if (buf[IP_PROTO_P]==IP_PROTO_TCP_V&&buf[TCP_DST_PORT_H_P]==0&&buf[TCP_DST_PORT_L_P]==mywwwport){
       if (buf[TCP_FLAGS_P] & TCP_FLAGS_SYN_V){
@@ -314,7 +307,9 @@ SENDTCP:  es.ES_make_tcp_ack_from_any(buf); // send ack for http get
            es.ES_make_tcp_ack_with_data(buf,plen); // send data       
       }
     }
-  } 
+  } else {
+    Serial.println("plen===0");
+  }
 }
  
 void breathe(byte r, byte g, byte b, byte msSpeed) {
