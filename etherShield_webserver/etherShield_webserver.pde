@@ -1,3 +1,5 @@
+#define DEBUG
+
 #include "etherShield.h"
 #include <string.h>
 // please modify the following two lines. mac and ip have to be unique
@@ -52,10 +54,12 @@ void setup(){
    es.ES_init_ip_arp_udp_tcp(mymac,myip,80);
    es.ES_enc28j60PhyWrite(EIR, 0);
    es.ES_enc28j60PhyWrite(EIR, EIR_PKTIF);
-   attachInterrupt(0, onInterrupt, FALLING);
+
    pinMode(RED_PIN, OUTPUT);
    pinMode(GREEN_PIN, OUTPUT);
    pinMode(BLUE_PIN, OUTPUT);
+   pinMode(2, INPUT);
+   digitalWrite(2, LOW);
         
 	/* Magjack leds configuration, see enc28j60 datasheet, page 11 */
 	// LEDA=greed LEDB=yellow
@@ -91,9 +95,11 @@ void setup(){
   // enc28j60PhyWrite(PHLCON,0b0000 0100 0111 01 10);
   es.ES_enc28j60PhyWrite(PHLCON,0x476);
   
-  
+  #ifdef DEBUG
   Serial.begin(9600);
   Serial.println("hello");
+  #endif
+  attachInterrupt(0, onInterrupt, FALLING);
 }
 
 void loop(){
@@ -104,21 +110,35 @@ void loop(){
   //noInterrupts();
   //handlePacket();
   //interrupts();
-  delayMicroseconds(100);
-  Serial.println("in loop");
-  Serial.println(es.ES_get_packet_count(), DEC);
+  //delayMicroseconds(100);
+  #ifdef DEBUG
+  Serial.println("LOOP");//: Packet Count - ");
+  //Serial.println(es.ES_get_packet_count(), DEC);
+  #endif
   switch (nextStatus)
   {
     case STATUS_BLINK:
+      #ifdef DEBUG
+      Serial.println("LOOP: BLINK");
+      #endif
       nextStatus = STATUS_BREATHE;
       blink(red, green, blue, blinkSpeed);
       break;
     case STATUS_BREATHE:
-       Serial.println("starting breath");
+      #ifdef DEBUG
+       Serial.print("LOOP: BREATHE - ");
+       Serial.print(red, HEX);
+       Serial.print(green, HEX);
+       Serial.print(blue, HEX);
+       Serial.println(breatheSpeed, HEX);
+       #endif
       breathe(red, green, blue, breatheSpeed);
       //nextStatus = STATUS_BREATHE;
       break;
     case STATUS_PING:
+      #ifdef DEBUG
+      Serial.println("LOOP: PING");
+      #endif
       nextStatus = STATUS_BREATHE;
       digitalWrite(RED_PIN, LOW);
       digitalWrite(BLUE_PIN, LOW);
@@ -128,12 +148,15 @@ void loop(){
       for (int i = 0; i < 50; i++, delayMicroseconds(10000));
       break;
     case STATUS_PARTY:
+      #ifdef DEBUG
+      Serial.println("LOOP: PARTY");
+      #endif
       nextStatus = STATUS_BREATHE;
       party();
       break;
   }
-  Serial.println("attaching interrupt");
-  attachInterrupt(0, onInterrupt, FALLING);
+  //Serial.println("LOOP: Attaching interrupt");
+  //attachInterrupt(0, onInterrupt, FALLING);
 }
 // The returned value is stored in the global var strbuf
 uint8_t find_key_val(char *str,char *key)
@@ -225,15 +248,17 @@ uint16_t print_webpage(uint8_t *buf)
  
 void onInterrupt() {
   
-  //noInterrupts();
-  detachInterrupt(0);
-  Serial.println("interrupted");
+  noInterrupts();
+  //detachInterrupt(0);
+  #ifdef DEBUG
+  Serial.println("INTERRUPT");
+  #endif
   while (es.ES_get_packet_count() > 0)
   {
     handlePacket();
   }
   //attachInterrupt(0, onInterrupt, FALLING);
-  //interrupts();
+  interrupts();
   //Serial.println("served interrupt");
 }
 
@@ -246,28 +271,38 @@ void handlePacket() {
 
 	/*plen will ne unequal to zero if there is a valid packet (without crc error) */
   if(plen!=0){
-    Serial.println("plen!=0");
+    #ifdef DEBUG
+    Serial.println("INTERRUPT: VALID PACKET");
+    #endif
 	           
     // arp is broadcast if unknown but a host may also verify the mac address by sending it to a unicast address.
     if(es.ES_eth_type_is_arp_and_my_ip(buf,plen)){
-      Serial.println("ARP");
+      #ifdef DEBUG
+      Serial.println("INTERRUPT: ARP");
+      #endif
       es.ES_make_arp_answer_from_request(buf);
       return;
     }
 
     // check if ip packets are for us:
     if(es.ES_eth_type_is_ip_and_my_ip(buf,plen)==0){
-      Serial.println("not me");
+      #ifdef DEBUG
+      Serial.println("INTERRUPT: NOT ME");
+      #endif
       return;
     }
 
     if(buf[IP_PROTO_P]==IP_PROTO_ICMP_V && buf[ICMP_TYPE_P]==ICMP_TYPE_ECHOREQUEST_V){
-       Serial.println("got ping");
+      #ifdef DEBUG
+       Serial.println("INTERRUPT: PING");
+       #endif
        nextStatus = STATUS_PING;
       es.ES_make_echo_reply_from_request(buf,plen);
       return;
     }
-    Serial.println("something else...");
+    #ifdef DEBUG
+    Serial.println("INTERRUPT: HTTP");
+    #endif
     // tcp port www start, compare only the lower byte
     if (buf[IP_PROTO_P]==IP_PROTO_TCP_V&&buf[TCP_DST_PORT_H_P]==0&&buf[TCP_DST_PORT_L_P]==mywwwport){
       if (buf[TCP_FLAGS_P] & TCP_FLAGS_SYN_V){
@@ -308,7 +343,9 @@ SENDTCP:  es.ES_make_tcp_ack_from_any(buf); // send ack for http get
       }
     }
   } else {
-    Serial.println("plen===0");
+    #ifdef DEBUG
+    Serial.println("--- INVALID PACKET ---");
+    #endif
   }
 }
  
